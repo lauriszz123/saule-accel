@@ -1,0 +1,8 @@
+target/
+
+# The built library is installed into ~/.saule/native_packages/ rather than
+# committed: it is platform-specific (.so / .dylib / .dll) and is rebuilt from
+# source on every machine.
+*.so
+*.dylib
+*.dll

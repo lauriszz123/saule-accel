@@ -1,0 +1,28 @@
+[package]
+name = "saule-accel"
+version = "0.1.0"
+edition = "2024"
+description = "Accelerated n-dimensional arrays for Saule — the native kernel layer behind numsol."
+license = "MIT"
+
+[lib]
+name = "saule_accel"
+# `cdylib` produces the `.so` / `.dll` / `.dylib` Saule loads at runtime.
+# `rlib` lets this crate's own tests link against it normally, so the kernels
+# are testable without the interpreter in the loop.
+crate-type = ["cdylib", "rlib"]
+path = "src/lib.rs"
+
+# This crate is its own workspace root, so it carries the settings the Saule
+# workspace would otherwise provide. Fat LTO and one codegen unit matter more
+# here than almost anywhere: the inner loops are the product.
+[profile.release]
+lto = "fat"
+codegen-units = 1
+
+[dependencies]
+# The SDK generates the C shim, infers each Saule signature from the Rust
+# types and compiles the package description into the library. A path
+# dependency rather than git because this is developed alongside the
+# toolchain; it becomes a version requirement once the SDK is published.
+saule-sdk = { path = "../saule/crates/saule-sdk" }

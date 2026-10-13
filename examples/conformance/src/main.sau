@@ -1,0 +1,203 @@
+--[[
+Conformance: the native numsol against the pure-Saule one.
+
+This program imports only `numsol` and uses only the API both implementations
+share, so it runs unchanged against either. `conformance.sh` runs it twice —
+once with the native package installed, once with it moved aside — and diffs
+the two outputs. Identical output means the native kernels agree with the
+reference element for element.
+
+That is the whole correctness story for this package, and it is why the
+pure-Saule `numsol` stays in the tree rather than being deleted once the
+native one works: it is the oracle. A faster wrong answer is not a backend.
+
+Two rules for anything added here:
+
+  * **No randomness.** `Num.random`, `uniform` and `randn` draw from different
+    generators in the two implementations, so they cannot agree and would turn
+    a real diff into noise. Build data with `shaped`, `matrix` and `arange`.
+  * **Print the numbers, not a verdict.** A check that decides "ok" itself can
+    agree with the reference about the wrong answer. Printing the values lets
+    the diff do the comparing.
+]]
+
+import * from "numsol"
+
+class Main
+  --- Print every element of `a` on one line, with its shape.
+  static fn dump(what: string, a: NDArray) -> nil
+    local parts: table<string> = {}
+    for i: integer = 1, a.size() do
+      Table.insert(parts, tostring(a.at(i)))
+    end
+    println(what .. " " .. a.shapeString() .. " [" .. Table.concat(parts, ", ") .. "]")
+    return nil
+  end
+
+  --- Like `dump`, but rounded to 12 decimals.
+  ---
+  --- For the transcendental family only. numsol computes `tanh` as
+  --- `(exp(2x) - 1) / (exp(2x) + 1)` with a clamp at +/-20, while the native
+  --- package calls the platform's `tanh`; the two agree to about 1e-16 but
+  --- not to the last bit, and the native one is the more accurate of the
+  --- pair. Rounding here makes the diff a 1e-12 tolerance check for these
+  --- specific functions, while everything else stays compared exactly --
+  --- which is where bit-identity is meaningful and worth keeping.
+  static fn dumpApprox(what: string, a: NDArray) -> nil
+    local parts: table<string> = {}
+    for i: integer = 1, a.size() do
+      Table.insert(parts, String.format("%.12f", a.at(i)))
+    end
+    println(what .. " " .. a.shapeString() .. " [" .. Table.concat(parts, ", ") .. "]")
+    return nil
+  end
+
+  static fn main()
+    -- Source data, built the same way on both sides.
+    local raw: table<float> = {}
+    for i: integer = 1, 24 do
+      Table.insert(raw, (i as float) * 0.5 - 6.0)
+    end
+
+    local a: NDArray = Num.shaped(raw, {4, 6})
+
+    println("-- construction --")
+    Main.dump("shaped", a)
+    Main.dump("zeros", Num.zeros({2, 3}))
+    Main.dump("ones", Num.ones({2, 3}))
+    Main.dump("full", Num.full({2, 2}, 2.5))
+    Main.dump("eye", Num.eye(3))
+    Main.dump("arange", Num.arange(0.0, 7.0))
+    Main.dump("matrix", Num.matrix({{1.0, 2.0}, {3.0, 4.0}}))
+    Main.dump("scalar", Num.scalar(1.5))
+    Main.dump("zerosLike", Num.zerosLike(a))
+    Main.dump("onesLike", Num.onesLike(a))
+
+    println("")
+    println("-- shape --")
+    Main.dump("transpose", a.transpose())
+    Main.dump("reshape", a.reshape({6, 4}))
+    Main.dump("copy", a.copy())
+    Main.dump("row", a.row(2))
+    Main.dump("col", a.col(3))
+    Main.dump("slice", a.slice(2, 3))
+    println("rank " .. a.rank() .. "  size " .. a.size() .. "  dim1 " .. a.dim(1)
+      .. "  dim2 " .. a.dim(2))
+    println("hasShape{4,6} " .. tostring(a.hasShape({4, 6})))
+    println("hasShape{6,4} " .. tostring(a.hasShape({6, 4})))
+    println("get{2,3} " .. a.get({2, 3}) .. "  at(9) " .. a.at(9))
+    println("item " .. Num.scalar(7.25).item())
+
+    println("")
+    println("-- arithmetic, array operand --")
+    Main.dump("a + a", a + a)
+    Main.dump("a - a", a - a)
+    Main.dump("a * a", a * a)
+
+    println("")
+    println("-- arithmetic, scalar operand --")
+    Main.dump("a + 2.5", a + 2.5)
+    Main.dump("a - 0.5", a - 0.5)
+    Main.dump("a * -3.0", a * -3.0)
+    Main.dump("a / 2.0", a / 2.0)
+    Main.dump("a ^ 2.0", a ^ 2.0)
+    Main.dump("-a", -a)
+
+    println("")
+    println("-- arithmetic, table operand --")
+    Main.dump("a + row", a + {1.0, 2.0, 3.0, 4.0, 5.0, 6.0})
+
+    println("")
+    println("-- broadcasting --")
+    local row: NDArray = Num.shaped({1.0, 2.0, 3.0, 4.0, 5.0, 6.0}, {1, 6})
+    local col: NDArray = Num.shaped({10.0, 20.0, 30.0, 40.0}, {4, 1})
+    Main.dump("a + row2d", a + row)
+    Main.dump("a + col2d", a + col)
+    Main.dump("a * row2d", a * row)
+    Main.dump("broadcastTo", row.broadcastTo({4, 6}))
+
+    println("")
+    println("-- elementwise functions --")
+    Main.dump("abs", a.abs())
+    Main.dumpApprox("exp", a.exp())
+    Main.dumpApprox("sqrt(abs)", a.abs().sqrt())
+    Main.dumpApprox("log(abs+1)", (a.abs() + 1.0).log())
+    Main.dumpApprox("tanh", a.tanh())
+    Main.dumpApprox("sigmoid", a.sigmoid())
+    Main.dump("step", a.step())
+    Main.dump("clamp", a.clamp(-2.0, 2.0))
+    Main.dump("minimum", a.minimum(1.0))
+    Main.dump("maximum", a.maximum(-1.0))
+
+    println("")
+    println("-- reductions --")
+    println("sum " .. a.sum() .. "  mean " .. a.mean() .. "  norm " .. a.norm())
+    Main.dump("sumAxis(1)", a.sumAxis(1))
+    Main.dump("sumAxis(2)", a.sumAxis(2))
+    Main.dump("sumAxis(2, keep)", a.sumAxis(2, true))
+    Main.dump("meanAxis(1)", a.meanAxis(1))
+    Main.dump("maxAxis(1)", a.maxAxis(1))
+    Main.dump("maxAxis(2, keep)", a.maxAxis(2, true))
+    Main.dump("argmaxAxis(2)", a.argmaxAxis(2))
+
+    println("")
+    println("-- linear algebra --")
+    Main.dump("a @ aT", a.matmul(a.transpose()))
+    Main.dump("aT @ a", a.transpose().matmul(a))
+    local m: NDArray = Num.matrix({{1.0, 2.0, 3.0}, {4.0, 5.0, 6.0}})
+    Main.dump("m @ I", m.matmul(Num.eye(3)))
+    Main.dump("m @ ones-vec", m.matmul(Num.ones({3})))
+
+    println("")
+    println("-- in place --")
+    local acc: NDArray = Num.zeros({2, 3})
+    acc.addInPlace(Num.ones({2, 3})).scaleInPlace(3.0)
+    Main.dump("chained in place", acc)
+    acc.fill(0.25)
+    Main.dump("fill", acc)
+    local w: NDArray = Num.ones({2, 2})
+    w.setAt(1, 9.0)
+    w.set({2, 2}, 7.0)
+    Main.dump("setAt + set", w)
+
+    println("")
+    println("-- Assignable --")
+    -- A bare float table filling an NDArray slot, via the class's `of`.
+    local assigned: NDArray = {7.0, 8.0, 9.0}
+    Main.dump("local v: NDArray = {...}", assigned)
+    -- And an array assigned into such a slot must ALIAS, not copy: the
+    -- conversion applies here too, so `of` has to pass the object through.
+    local src: NDArray = Num.zeros({2, 2})
+    local alias: NDArray = src
+    alias.setAt(1, 9.0)
+    println("aliased " .. tostring(src.at(1) == 9.0)
+      .. "  identity " .. tostring(src == alias))
+
+    println("")
+    println("-- indexing --")
+    local ix: NDArray = Num.shaped({3.0, 4.0, 5.0}, {3})
+    println("ix[2] " .. ix[2])
+    ix[2] = 8.0
+    Main.dump("after ix[2] = 8.0", ix)
+
+    println("")
+    println("-- the random factories --")
+    -- Saule seeds `Math.random` from a fixed constant, so these are
+    -- reproducible, and the native package copies the generator bit for bit.
+    -- Checking them here is the point: a network's initialisation comes from
+    -- `randn`, so a diverging stream would silently change every training run
+    -- that swapped backends.
+    Main.dumpApprox("random", Num.random({2, 3}))
+    Main.dumpApprox("uniform", Num.uniform({2, 3}, -1.0, 1.0))
+    Main.dumpApprox("randn", Num.randn({2, 3}))
+    Main.dumpApprox("randn odd count", Num.randn({5}))
+
+    println("")
+    println("-- equality and text --")
+    println("a == a.copy() " .. tostring(a == a.copy()))
+    println("a == a + 1.0 " .. tostring(a == a + 1.0))
+    println("allClose " .. tostring(a.allClose(a.copy())))
+    println("#a " .. #a)
+    println("shapeString " .. a.shapeString())
+  end
+end
