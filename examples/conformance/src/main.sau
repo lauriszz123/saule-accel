@@ -21,7 +21,7 @@ Two rules for anything added here:
     the diff do the comparing.
 ]]
 
-import * from "numsol"
+from "numsol" import *
 
 class Main
   --- Print every element of `a` on one line, with its shape.
